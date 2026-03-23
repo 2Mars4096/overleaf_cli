@@ -135,7 +135,7 @@ The preferred skill experience is:
 4. the agent handles validation, project selection, preview, confirmation, reads, edits, and optional compile/PDF steps internally
 
 Example Codex request:
-1. "Install this skill for me: https://github.com/2Mars4096/overleaf_cli"
+1. "Install this skill for me: https://github.com/2Mars4096/overleaf_agent"
 2. restart Codex
 3. "Use the overleaf-agent skill and connect to Overleaf with this cookie: ..."
 
