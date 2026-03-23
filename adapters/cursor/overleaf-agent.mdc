@@ -36,7 +36,8 @@ The user-facing workflow should be natural language. Cursor should execute the l
    - `npm run overleaf -- download-pdf --output-file ./paper.pdf`
    - `npm run overleaf -- extract-csrf`
 5. Preview mutation commands first, then rerun them with the emitted confirmation token when the reviewed action should be applied.
-6. Treat writes and refresh as gated work until live validation proves the hosted-instance behavior.
+6. `add-folder`, `rename`, `move`, `delete`, and `compile` are now live-validated in a disposable hosted project.
+7. Treat `download-pdf`, writes, and refresh as gated work until live validation proves the hosted-instance behavior.
 
 ## Guardrails
 

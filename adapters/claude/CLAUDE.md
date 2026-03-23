@@ -40,8 +40,9 @@ The user should interact in natural language. Claude should run the local Overle
    - `npm run overleaf -- download-pdf --output-file ./paper.pdf`
    - `npm run overleaf -- extract-csrf`
 5. Preview mutation commands first, then rerun them with the emitted confirmation token when the reviewed action should be applied.
-6. Treat the request contract as source-verified unless the current hosted instance has been probed live.
-7. Keep write and refresh work gated behind `probe-write` and `probe-refresh` until the live host is validated.
+6. `add-folder`, `rename`, `move`, `delete`, and `compile` are now live-validated in a disposable hosted project.
+7. Treat the request contract as source-verified unless the current hosted instance has been probed live.
+8. Keep `download-pdf`, write, and refresh work gated behind live host validation.
 
 ## Guardrails
 

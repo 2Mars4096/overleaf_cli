@@ -1273,8 +1273,8 @@ async function deleteProjectEntity(config) {
 async function compileProject(config) {
   assertRequired(config, config.dryRun ? ['baseUrl', 'projectId'] : ['baseUrl', 'cookieHeader', 'projectId'], 'compile');
   const endpoint = config.endpoint || '/project/${projectId}/compile';
-  const csrfToken = config.dryRun ? (config.csrfToken || '<resolved-at-runtime>') : await ensureCsrfToken(config);
-  const request = buildRequest({ ...config, csrfToken }, endpoint, 'POST', {
+  const dryRunCsrfToken = config.dryRun ? (config.csrfToken || '<resolved-at-runtime>') : '';
+  const request = buildRequest({ ...config, csrfToken: dryRunCsrfToken }, endpoint, 'POST', {
     body: JSON.stringify({
       compile: {
         options: {
@@ -1301,13 +1301,14 @@ async function compileProject(config) {
     };
   }
 
-  const response = await executeRequest(request, config);
-  const result = summarizeResponse('compile', request, response, { ...config, csrfToken }, endpoint);
-  const body = parseJson(response.body);
-  if (body?.compile) {
-    result.compile = body.compile;
-    result.compileStatus = body.compile.status || '';
-    result.outputFiles = Array.isArray(body.compile.outputFiles) ? body.compile.outputFiles : [];
+  const compileRun = await executeCompileRequest(config, endpoint);
+  const result = summarizeResponse('compile', compileRun.request, compileRun.response, { ...config, csrfToken: compileRun.csrfToken }, endpoint);
+  const compilePayload = compileRun.payload;
+  if (compilePayload) {
+    result.compile = compilePayload.raw;
+    result.compileStatus = compilePayload.status;
+    result.outputFiles = compilePayload.outputFiles;
+    result.pdfOutput = compilePayload.pdfOutput || null;
   }
   result.rootFile = config.rootFile || DEFAULT_ROOT_FILE;
   result.compiler = config.compiler || DEFAULT_COMPILER;
@@ -1320,33 +1321,59 @@ async function compileProject(config) {
 
 async function downloadProjectPdf(config) {
   assertRequired(config, config.dryRun ? ['baseUrl', 'projectId'] : ['baseUrl', 'cookieHeader', 'projectId'], 'download-pdf');
-  const endpoint = config.endpoint || '/project/${projectId}/output/output.pdf';
   const outputFile = resolve(config.outputFile || defaultPdfOutputFile(config));
-  const request = buildRequest(config, endpoint, 'GET', {
-    accept: 'application/pdf,application/octet-stream;q=0.9,*/*;q=0.8',
-  });
 
   if (config.dryRun) {
+    const endpoint = config.endpoint || '/project/${projectId}/output/output.pdf';
     return {
       label: 'download-pdf',
       mode: 'dry-run',
-      request: redactAny(request, config),
+      request: redactAny(buildRequest(config, endpoint, 'GET', {
+        accept: 'application/pdf,application/octet-stream;q=0.9,*/*;q=0.8',
+      }), config),
       outputFile,
       notes: [
         'Downloads the compiled PDF to a local file path.',
-        'The standard output path is inferred from the CLSI output file contract and still needs broader live validation on hosted Overleaf.',
+        config.endpoint
+          ? 'Uses the explicit PDF endpoint override provided for this command.'
+          : 'In live mode, the CLI first resolves the current PDF output URL from the compile response and then fetches that file.',
       ],
     };
   }
 
+  let pdfUrl = '';
+  let pdfOutput = null;
+  let compilePayload = null;
+
+  if (config.endpoint) {
+    pdfUrl = new URL(config.endpoint, config.baseUrl).toString();
+  } else {
+    const compileRun = await executeCompileRequest(config, '/project/${projectId}/compile');
+    compilePayload = compileRun.payload;
+    pdfOutput = compilePayload?.pdfOutput || resolvePdfOutputFromFiles(compilePayload?.outputFiles || []);
+    if (!pdfOutput?.url) {
+      throw new Error('download-pdf: compile succeeded but no PDF output URL was returned.');
+    }
+    pdfUrl = resolveCompileOutputUrl(config, compilePayload, pdfOutput);
+  }
+  const request = buildBinaryDownloadRequest(config, pdfUrl);
   const response = await executeBinaryRequest(request, config);
+  if (!response.ok) {
+    throw new Error(`download-pdf: expected a PDF response but received ${response.status} ${response.statusText}`);
+  }
+  const contentType = String(response.headers['content-type'] || '');
+  if (contentType && !contentType.includes('application/pdf') && !contentType.includes('application/octet-stream')) {
+    throw new Error(`download-pdf: expected a PDF content type but received ${contentType}`);
+  }
   mkdirSync(pathDirname(outputFile), { recursive: true });
   writeFileSync(outputFile, response.body);
   return {
     label: 'download-pdf',
-    endpointType: endpoint,
+    endpointType: pdfUrl,
     outputFile,
     bytesWritten: response.body.length,
+    pdfUrl,
+    build: pdfOutput?.build || '',
     request: redactAny(request, config),
     response: redactAny({
       status: response.status,
@@ -1356,7 +1383,9 @@ async function downloadProjectPdf(config) {
     }, config),
     notes: [
       'Saved the fetched PDF response to the local output file.',
-      'The standard output path is inferred from the CLSI output file contract and still needs broader live validation on hosted Overleaf.',
+      config.endpoint
+        ? 'The PDF was fetched from the explicit endpoint override provided for this command.'
+        : 'The PDF URL was resolved from the current compile response rather than a guessed static output path.',
     ],
   };
 }
@@ -1802,12 +1831,15 @@ async function executeRequest(request, config) {
   const timeout = setTimeout(() => controller.abort(new Error(`Request timed out after ${config.timeoutMs}ms`)), config.timeoutMs);
 
   try {
-    const response = await fetch(request.url, {
+    const init = {
       method: request.method,
       headers: request.headers,
-      body: request.body,
       signal: controller.signal,
-    });
+    };
+    if (request.body !== undefined && request.body !== null && request.body !== '' && request.method !== 'GET' && request.method !== 'HEAD') {
+      init.body = request.body;
+    }
+    const response = await fetch(request.url, init);
 
     const text = await response.text();
     return {
@@ -1827,12 +1859,15 @@ async function executeBinaryRequest(request, config) {
   const timeout = setTimeout(() => controller.abort(new Error(`Request timed out after ${config.timeoutMs}ms`)), config.timeoutMs);
 
   try {
-    const response = await fetch(request.url, {
+    const init = {
       method: request.method,
       headers: request.headers,
-      body: request.body,
       signal: controller.signal,
-    });
+    };
+    if (request.body !== undefined && request.body !== null && request.body !== '' && request.method !== 'GET' && request.method !== 'HEAD') {
+      init.body = request.body;
+    }
+    const response = await fetch(request.url, init);
 
     return {
       ok: response.ok,
@@ -1843,6 +1878,98 @@ async function executeBinaryRequest(request, config) {
     };
   } finally {
     clearTimeout(timeout);
+  }
+}
+
+async function executeCompileRequest(config, endpoint = '/project/${projectId}/compile') {
+  const csrfToken = await ensureCsrfToken(config);
+  const request = buildRequest({ ...config, csrfToken }, endpoint, 'POST', {
+    body: JSON.stringify({
+      compile: {
+        options: {
+          compiler: config.compiler || DEFAULT_COMPILER,
+          timeout: Math.max(1, Math.ceil(config.timeoutMs / 1000)),
+        },
+        rootResourcePath: config.rootFile || DEFAULT_ROOT_FILE,
+      },
+    }),
+    contentType: 'application/json',
+  });
+  const response = await executeRequest(request, config);
+  return {
+    endpoint,
+    csrfToken,
+    request,
+    response,
+    payload: parseCompilePayload(parseJson(response.body)),
+  };
+}
+
+function parseCompilePayload(body) {
+  if (!body || typeof body !== 'object') return null;
+  const nested = body.compile && typeof body.compile === 'object' ? body.compile : null;
+  const status = nested?.status || body.status || '';
+  const outputFiles = Array.isArray(nested?.outputFiles)
+    ? nested.outputFiles
+    : Array.isArray(body.outputFiles)
+      ? body.outputFiles
+      : [];
+  return {
+    raw: body,
+    status,
+    outputFiles,
+    outputUrlPrefix: nested?.outputUrlPrefix || body.outputUrlPrefix || '',
+    pdfDownloadDomain: nested?.pdfDownloadDomain || body.pdfDownloadDomain || '',
+    pdfOutput: resolvePdfOutputFromFiles(outputFiles),
+  };
+}
+
+function resolvePdfOutputFromFiles(outputFiles) {
+  if (!Array.isArray(outputFiles)) return null;
+  return outputFiles.find(file => file?.type === 'pdf')
+    || outputFiles.find(file => String(file?.path || '').toLowerCase().endsWith('.pdf'))
+    || null;
+}
+
+function resolveCompileOutputUrl(config, compilePayload, outputFile) {
+  const rawUrl = String(outputFile?.url || '');
+  if (!rawUrl) return '';
+  if (/^https?:\/\//i.test(rawUrl)) return rawUrl;
+
+  const pdfDownloadDomain = String(compilePayload?.pdfDownloadDomain || '');
+  if (pdfDownloadDomain) {
+    return `${pdfDownloadDomain.replace(/\/$/, '')}${rawUrl}`;
+  }
+
+  const outputUrlPrefix = String(compilePayload?.outputUrlPrefix || '');
+  if (outputUrlPrefix) {
+    return `${String(config.baseUrl || '').replace(/\/$/, '')}${outputUrlPrefix}${rawUrl}`;
+  }
+
+  return new URL(rawUrl, config.baseUrl).toString();
+}
+
+function buildBinaryDownloadRequest(config, rawUrl) {
+  const url = new URL(rawUrl, config.baseUrl);
+  const headers = new Headers({
+    Accept: 'application/pdf,application/octet-stream;q=0.9,*/*;q=0.8',
+  });
+  if (sameOriginAsBaseUrl(config, url)) {
+    headers.set('Cookie', config.cookieHeader);
+  }
+  return {
+    method: 'GET',
+    url: url.toString(),
+    headers: Object.fromEntries(headers.entries()),
+    body: undefined,
+  };
+}
+
+function sameOriginAsBaseUrl(config, url) {
+  try {
+    return new URL(config.baseUrl).origin === new URL(url).origin;
+  } catch {
+    return false;
   }
 }
 

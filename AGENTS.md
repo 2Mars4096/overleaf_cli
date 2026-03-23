@@ -31,7 +31,8 @@ The user-facing workflow should be natural language. Run the local Overleaf tool
 5. Treat live mutations as guarded work.
    Hosted Overleaf validation now covers `validate`, `projects`, `snapshot`, `read`, `add-doc`, and realtime `edit` in a disposable project.
    Preview mutation commands first, then rerun them with the emitted confirmation token when the reviewed action should be applied.
-   `add-folder`, `rename`, `move`, `delete`, compile/PDF, upload/asset handling, and refresh policy still need more validation.
+   `add-folder`, `rename`, `move`, `delete`, and `compile` are now live-validated in a disposable hosted project.
+   `download-pdf`, upload/asset handling, and refresh policy still need more validation.
 
 ## Guardrails
 

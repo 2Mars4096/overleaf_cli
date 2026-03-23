@@ -38,8 +38,9 @@ The user-facing experience should be natural language. The agent should execute 
    - `npm run overleaf -- download-pdf --output-file ./paper.pdf`
    - `npm run overleaf -- extract-csrf`
 5. Preview mutation commands first, then rerun them with the emitted confirmation token when the reviewed action should be applied.
-6. Keep `probe-write` and `probe-refresh` in dry-run mode until a live hosted probe closes those gaps.
-7. Use `docs/overleaf-request-contract.md` for the current source-verified routes and limitations.
+6. `add-folder`, `rename`, `move`, `delete`, and `compile` are now live-validated in a disposable hosted project.
+7. Keep `download-pdf`, `probe-write`, and `probe-refresh` treated as partially validated until a live hosted probe closes those gaps.
+8. Use `docs/overleaf-request-contract.md` for the current source-verified routes and limitations.
 
 ## Guardrails
 

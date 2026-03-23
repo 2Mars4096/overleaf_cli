@@ -1,6 +1,6 @@
 # Overleaf Request Contract
 
-**Status:** source-verified on 2026-03-23 from public Overleaf upstream code, implemented locally in the discovery CLI, and partially live-validated on hosted Overleaf on 2026-03-23. Hosted validation now covers `GET /user/projects`, realtime project snapshot, HTTP doc download, disposable `POST /project/:id/doc`, and disposable realtime `applyOtUpdate`. `add-folder`, `rename`, `move`, `delete`, compile/PDF, upload/asset handling, and refresh policy still need more live validation.
+**Status:** source-verified on 2026-03-23 from public Overleaf upstream code, implemented locally in the discovery CLI, and partially live-validated on hosted Overleaf on 2026-03-23. Hosted validation now covers `GET /user/projects`, realtime project snapshot, HTTP doc download, disposable `POST /project/:id/doc`, disposable `POST /project/:id/folder`, rename/move/delete web routes, disposable realtime `applyOtUpdate`, and `POST /project/:id/compile`. `download-pdf`, upload/asset handling, and refresh policy still need more live validation.
 
 ## Auth Prerequisites
 
@@ -78,14 +78,14 @@
 
 ### Compile And PDF
 
-- The Overleaf compile/PDF flow is currently implemented as a best-effort CLSI-style workflow.
+- The Overleaf compile/PDF flow is implemented as a CLSI-style workflow driven by the web compile route.
 - Implemented local commands:
   - `compile` uses `POST /project/:Project_id/compile`
-  - `download-pdf` uses `GET /project/:Project_id/output/output.pdf`
+  - `download-pdf` first runs `compile`, then resolves the candidate PDF output URL from the returned `outputFiles`, `outputUrlPrefix`, and `pdfDownloadDomain`
 - Status:
-  - inferred from Overleaf's public CLSI API shape
-  - not yet live-validated against hosted Overleaf in this repo
-- Treat these commands as provisional until the target deployment accepts them with a real imported session cookie.
+  - `compile` is live-validated on hosted Overleaf in this repo
+  - `download-pdf` now fails cleanly on hosted Overleaf when the resolved candidate PDF URL still returns `404`
+- Treat `download-pdf` as provisional until the target deployment exposes a confirmed PDF file route.
 
 ### Version And Refresh Signals
 
@@ -117,11 +117,11 @@
 - Use `npm run overleaf -- add-doc`, `add-folder`, `rename`, `move`, and `delete` to preview guarded project mutations after validating a throwaway target, then rerun with `--send --confirm <token>`.
 - Use `npm run overleaf -- doctor` for a local readiness/self-test pass.
 - Use `npm run overleaf -- compile --project-id <id> --root-file main.tex` for the provisional compile flow.
-- Use `npm run overleaf -- download-pdf --project-id <id> --output-file ./paper.pdf` for the provisional PDF fetch flow.
+- Use `npm run overleaf -- download-pdf --project-id <id> --output-file ./paper.pdf` for the provisional PDF fetch flow that resolves the PDF URL from compile metadata and fails cleanly if the hosted route is still wrong.
 - Use `npm run overleaf -- extract-csrf --base-url <url> --cookie '<cookie>' --project-id <id>` to recover a live CSRF token from an authenticated HTML page.
 
 ## Remaining Live Checks
 
-- Validate `add-folder`, `rename`, `move`, `delete`, `compile`, and `download-pdf` against a disposable hosted project.
+- Confirm the hosted PDF file route that corresponds to the compile response metadata used by `download-pdf`.
 - Decide whether refresh can stay HTTP-polling-only, or whether the MVP must depend on the real-time socket path.
 - Confirm how much of the same contract carries over to self-hosted Overleaf deployments.

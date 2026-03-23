@@ -82,7 +82,8 @@ Do not present this as a full editor integration. The repo currently provides a 
    - Do not claim that polling-only refresh is safe unless the live host has been validated.
    - Upload and asset workflows remain future scope.
    - Hosted Overleaf validation now covers session validation, project listing, realtime snapshot, HTTP document reads, `add-doc`, and realtime `edit` in a disposable project.
-   - `add-folder`, `rename`, `move`, `delete`, compile/PDF, and refresh policy remain partially unvalidated and should still be treated as guarded work.
+   - `add-folder`, `rename`, `move`, `delete`, and `compile` are now live-validated in a disposable hosted project.
+   - `download-pdf` and refresh policy remain partially unvalidated and should still be treated as guarded work.
 
 5. Reuse the packaged adapters instead of rewriting the workflow for each host.
    - Codex skill: use this `SKILL.md`.
