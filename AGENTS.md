@@ -26,13 +26,12 @@ The user-facing workflow should be natural language. Run the local Overleaf tool
    - `npm run overleaf -- forget-project`
    - `npm run overleaf -- reset-profile`
    - `npm run overleaf -- compile --root-file main.tex`
-   - `npm run overleaf -- download-pdf --output-file ./paper.pdf`
    - `npm run overleaf -- extract-csrf`
 5. Treat live mutations as guarded work.
    Hosted Overleaf validation now covers `validate`, `projects`, `snapshot`, `read`, `add-doc`, and realtime `edit` in a disposable project.
    Preview mutation commands first, then rerun them with the emitted confirmation token when the reviewed action should be applied.
    `add-folder`, `rename`, `move`, `delete`, and `compile` are now live-validated in a disposable hosted project.
-   `download-pdf`, upload/asset handling, and refresh policy still need more validation.
+   Upload/asset handling and refresh policy still need more validation.
 
 ## Guardrails
 

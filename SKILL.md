@@ -71,7 +71,6 @@ Do not present this as a full editor integration. The repo currently provides a 
      - `npm run overleaf -- edit --file-path /main.tex --text-file ./main.tex`
      - `npm run overleaf -- add-doc --file-path /drafts/new.tex`
      - `npm run overleaf -- compile --root-file main.tex`
-     - `npm run overleaf -- download-pdf --output-file ./paper.pdf`
      - `npm run overleaf -- extract-csrf`
 
 4. Treat live mutations as guarded work.
@@ -83,7 +82,7 @@ Do not present this as a full editor integration. The repo currently provides a 
    - Upload and asset workflows remain future scope.
    - Hosted Overleaf validation now covers session validation, project listing, realtime snapshot, HTTP document reads, `add-doc`, and realtime `edit` in a disposable project.
    - `add-folder`, `rename`, `move`, `delete`, and `compile` are now live-validated in a disposable hosted project.
-   - `download-pdf` and refresh policy remain partially unvalidated and should still be treated as guarded work.
+   - Refresh policy remains partially unvalidated and should still be treated as guarded work.
 
 5. Reuse the packaged adapters instead of rewriting the workflow for each host.
    - Codex skill: use this `SKILL.md`.

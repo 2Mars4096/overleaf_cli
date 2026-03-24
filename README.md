@@ -25,7 +25,7 @@ Intended UX:
 - extracts CSRF tokens from authenticated pages
 - performs guarded text edits through Overleaf's realtime `applyOtUpdate` path with preview-first confirmation tokens
 - performs guarded project mutations such as add, rename, move, and delete
-- can run a live hosted compile workflow and an experimental PDF fetch workflow that fails safely when the hosted PDF route is not confirmed
+- can run a live hosted compile workflow when you want Overleaf to build the current project
 - provides copyable adapter files for multiple agent hosts
 
 ## What It Is Not
@@ -123,7 +123,6 @@ npm run overleaf -- rename --file-path /drafts/new.tex --name draft.tex
 npm run overleaf -- move --file-path /draft.tex --target-path /archive
 npm run overleaf -- delete --file-path /archive/draft.tex
 npm run overleaf -- compile --root-file main.tex
-npm run overleaf -- download-pdf --output-file ./paper.pdf
 ```
 
 ## Agent-Led Flow
@@ -132,7 +131,7 @@ The preferred skill experience is:
 1. the user gives the agent the Overleaf cookie header once
 2. the agent runs `connect` internally and stores it in the gitignored local settings
 3. the user asks for project reads or edits in plain language
-4. the agent handles validation, project selection, preview, confirmation, reads, edits, and optional compile / experimental PDF steps internally
+4. the agent handles validation, project selection, preview, confirmation, reads, edits, and optional compile steps internally
 
 Example Codex request:
 1. "Install this skill for me: https://github.com/2Mars4096/overleaf_agent"
@@ -171,5 +170,5 @@ Example Codex request:
 ## Scope Notes
 
 - session validation, listing, realtime snapshots, HTTP doc reads, `add-doc`, `add-folder`, `rename`, `move`, `delete`, realtime text edits, and `compile` are now live-validated against hosted Overleaf in a disposable project
-- `download-pdf`, upload/asset workflows, and refresh/conflict hardening still need more live validation
+- upload/asset workflows and refresh/conflict hardening still need more live validation
 - the hosted realtime path requires the handshake-time affinity cookie returned by Overleaf, so the socket shim now keeps an in-memory cookie jar for the polling session

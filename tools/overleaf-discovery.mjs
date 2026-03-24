@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname as pathDirname, posix as pathPosix, resolve } from 'node:path';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { posix as pathPosix, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { applyOtUpdate, joinDoc, runSocketSession } from './overleaf-realtime.mjs';
 
@@ -28,7 +28,6 @@ const PROFILE_RESET_PRESERVE_KEYS = new Set([
   'methods',
   'compiler',
   'rootFile',
-  'outputFile',
 ]);
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
@@ -88,7 +87,6 @@ function loadConfig(command, options, extraArgs) {
   const textFile = firstConfigured(options.textFile, env.OVERLEAF_TEXT_FILE, settings.textFile);
   const rootFile = firstConfigured(options.rootFile, options.mainFile, env.OVERLEAF_ROOT_FILE, env.OVERLEAF_MAIN_FILE, settings.rootFile, settings.mainFile);
   const compiler = firstConfigured(options.compiler, env.OVERLEAF_COMPILER, settings.compiler);
-  const outputFile = firstConfigured(options.outputFile, env.OVERLEAF_OUTPUT_FILE, settings.outputFile);
   const confirm = firstConfigured(options.confirm, env.OVERLEAF_CONFIRM);
   const timeoutMs = numberFrom(firstConfigured(options.timeoutMs, env.OVERLEAF_TIMEOUT_MS, settings.timeoutMs), DEFAULT_TIMEOUT_MS);
   const json = toBoolean(firstConfigured(options.json, env.OVERLEAF_JSON, settings.json));
@@ -134,7 +132,6 @@ function loadConfig(command, options, extraArgs) {
     textFile,
     rootFile,
     compiler,
-    outputFile,
     confirm,
     timeoutMs,
     json,
@@ -289,8 +286,6 @@ async function runCommand(command, config) {
       return deleteProjectEntity(await resolveProjectConfig(config, 'delete', { required: true }));
     case 'compile':
       return compileProject(await resolveProjectConfig(config, 'compile', { required: true }));
-    case 'download-pdf':
-      return downloadProjectPdf(await resolveProjectConfig(config, 'download-pdf', { required: true }));
     case 'extract-csrf':
       return extractCsrf(await resolveProjectConfig(config, 'extract-csrf', { required: false }));
     case 'probe-write':
@@ -1312,8 +1307,7 @@ async function compileProject(config) {
       rootFile: config.rootFile || DEFAULT_ROOT_FILE,
       compiler: config.compiler || DEFAULT_COMPILER,
       notes: [
-        'This compile request is based on the CLSI-style Overleaf compile API and has not yet been live-validated on hosted Overleaf in this repo.',
-        'Use download-pdf after a successful compile if the target deployment exposes the standard output path.',
+        'This compile request follows the hosted Overleaf web compile route used by this skill.',
       ],
     };
   }
@@ -1325,87 +1319,14 @@ async function compileProject(config) {
     result.compile = compilePayload.raw;
     result.compileStatus = compilePayload.status;
     result.outputFiles = compilePayload.outputFiles;
-    result.pdfOutput = compilePayload.pdfOutput || null;
   }
   result.rootFile = config.rootFile || DEFAULT_ROOT_FILE;
   result.compiler = config.compiler || DEFAULT_COMPILER;
   result.notes = [
     ...(result.notes || []),
-    'This compile route is implemented as a best-effort CLSI-style workflow and still needs live validation against the target Overleaf deployment.',
+    'This compile route is live-validated on hosted Overleaf in this repo.',
   ];
   return result;
-}
-
-async function downloadProjectPdf(config) {
-  assertRequired(config, config.dryRun ? ['baseUrl', 'projectId'] : ['baseUrl', 'cookieHeader', 'projectId'], 'download-pdf');
-  const outputFile = resolve(config.outputFile || defaultPdfOutputFile(config));
-
-  if (config.dryRun) {
-    const endpoint = config.endpoint || '/project/${projectId}/output/output.pdf';
-    return {
-      label: 'download-pdf',
-      mode: 'dry-run',
-      request: redactAny(buildRequest(config, endpoint, 'GET', {
-        accept: 'application/pdf,application/octet-stream;q=0.9,*/*;q=0.8',
-      }), config),
-      outputFile,
-      notes: [
-        'Downloads the compiled PDF to a local file path.',
-        config.endpoint
-          ? 'Uses the explicit PDF endpoint override provided for this command.'
-          : 'In live mode, the CLI first resolves the current PDF output URL from the compile response and then fetches that file.',
-      ],
-    };
-  }
-
-  let pdfUrl = '';
-  let pdfOutput = null;
-  let compilePayload = null;
-
-  if (config.endpoint) {
-    pdfUrl = new URL(config.endpoint, config.baseUrl).toString();
-  } else {
-    const compileRun = await executeCompileRequest(config, '/project/${projectId}/compile');
-    compilePayload = compileRun.payload;
-    pdfOutput = compilePayload?.pdfOutput || resolvePdfOutputFromFiles(compilePayload?.outputFiles || []);
-    if (!pdfOutput?.url) {
-      throw new Error('download-pdf: compile succeeded but no PDF output URL was returned.');
-    }
-    pdfUrl = resolveCompileOutputUrl(config, compilePayload, pdfOutput);
-  }
-  const request = buildBinaryDownloadRequest(config, pdfUrl);
-  const response = await executeBinaryRequest(request, config);
-  if (!response.ok) {
-    const statusLabel = response.statusText ? `${response.status} ${response.statusText}` : String(response.status);
-    throw new Error(`download-pdf: expected a PDF response but received ${statusLabel}`);
-  }
-  const contentType = String(response.headers['content-type'] || '');
-  if (contentType && !contentType.includes('application/pdf') && !contentType.includes('application/octet-stream')) {
-    throw new Error(`download-pdf: expected a PDF content type but received ${contentType}`);
-  }
-  mkdirSync(pathDirname(outputFile), { recursive: true });
-  writeFileSync(outputFile, response.body);
-  return {
-    label: 'download-pdf',
-    endpointType: pdfUrl,
-    outputFile,
-    bytesWritten: response.body.length,
-    pdfUrl,
-    build: pdfOutput?.build || '',
-    request: redactAny(request, config),
-    response: redactAny({
-      status: response.status,
-      statusText: response.statusText,
-      headers: response.headers,
-      bodyPreview: `<binary:${response.body.length} bytes>`,
-    }, config),
-    notes: [
-      'Saved the fetched PDF response to the local output file.',
-      config.endpoint
-        ? 'The PDF was fetched from the explicit endpoint override provided for this command.'
-        : 'The PDF URL was resolved from the current compile response rather than a guessed static output path.',
-    ],
-  };
 }
 
 async function probeWrite(config) {
@@ -1872,33 +1793,6 @@ async function executeRequest(request, config) {
   }
 }
 
-async function executeBinaryRequest(request, config) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(new Error(`Request timed out after ${config.timeoutMs}ms`)), config.timeoutMs);
-
-  try {
-    const init = {
-      method: request.method,
-      headers: request.headers,
-      signal: controller.signal,
-    };
-    if (request.body !== undefined && request.body !== null && request.body !== '' && request.method !== 'GET' && request.method !== 'HEAD') {
-      init.body = request.body;
-    }
-    const response = await fetch(request.url, init);
-
-    return {
-      ok: response.ok,
-      status: response.status,
-      statusText: response.statusText,
-      headers: Object.fromEntries(response.headers.entries()),
-      body: Buffer.from(await response.arrayBuffer()),
-    };
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
 async function executeCompileRequest(config, endpoint = '/project/${projectId}/compile') {
   const csrfToken = await ensureCsrfToken(config);
   const request = buildRequest({ ...config, csrfToken }, endpoint, 'POST', {
@@ -1936,59 +1830,7 @@ function parseCompilePayload(body) {
     raw: body,
     status,
     outputFiles,
-    outputUrlPrefix: nested?.outputUrlPrefix || body.outputUrlPrefix || '',
-    pdfDownloadDomain: nested?.pdfDownloadDomain || body.pdfDownloadDomain || '',
-    pdfOutput: resolvePdfOutputFromFiles(outputFiles),
   };
-}
-
-function resolvePdfOutputFromFiles(outputFiles) {
-  if (!Array.isArray(outputFiles)) return null;
-  return outputFiles.find(file => file?.type === 'pdf')
-    || outputFiles.find(file => String(file?.path || '').toLowerCase().endsWith('.pdf'))
-    || null;
-}
-
-function resolveCompileOutputUrl(config, compilePayload, outputFile) {
-  const rawUrl = String(outputFile?.url || '');
-  if (!rawUrl) return '';
-  if (/^https?:\/\//i.test(rawUrl)) return rawUrl;
-
-  const pdfDownloadDomain = String(compilePayload?.pdfDownloadDomain || '');
-  if (pdfDownloadDomain) {
-    return `${pdfDownloadDomain.replace(/\/$/, '')}${rawUrl}`;
-  }
-
-  const outputUrlPrefix = String(compilePayload?.outputUrlPrefix || '');
-  if (outputUrlPrefix) {
-    return `${String(config.baseUrl || '').replace(/\/$/, '')}${outputUrlPrefix}${rawUrl}`;
-  }
-
-  return new URL(rawUrl, config.baseUrl).toString();
-}
-
-function buildBinaryDownloadRequest(config, rawUrl) {
-  const url = new URL(rawUrl, config.baseUrl);
-  const headers = new Headers({
-    Accept: 'application/pdf,application/octet-stream;q=0.9,*/*;q=0.8',
-  });
-  if (sameOriginAsBaseUrl(config, url)) {
-    headers.set('Cookie', config.cookieHeader);
-  }
-  return {
-    method: 'GET',
-    url: url.toString(),
-    headers: Object.fromEntries(headers.entries()),
-    body: undefined,
-  };
-}
-
-function sameOriginAsBaseUrl(config, url) {
-  try {
-    return new URL(config.baseUrl).origin === new URL(url).origin;
-  } catch {
-    return false;
-  }
 }
 
 function summarizeResponse(label, request, response, config, endpointType = '') {
@@ -2225,7 +2067,6 @@ function parseArgs(argv) {
         case 'root-file': options.rootFile = readArgValue(argv, i, inlineValue, key); if (inlineValue === undefined) i += 1; break;
         case 'main-file': options.mainFile = readArgValue(argv, i, inlineValue, key); if (inlineValue === undefined) i += 1; break;
         case 'compiler': options.compiler = readArgValue(argv, i, inlineValue, key); if (inlineValue === undefined) i += 1; break;
-        case 'output-file': options.outputFile = readArgValue(argv, i, inlineValue, key); if (inlineValue === undefined) i += 1; break;
         case 'endpoint': options.endpoint = readArgValue(argv, i, inlineValue, key); if (inlineValue === undefined) i += 1; break;
         case 'method': options.method = readArgValue(argv, i, inlineValue, key); if (inlineValue === undefined) i += 1; break;
         case 'timeout-ms': options.timeoutMs = readArgValue(argv, i, inlineValue, key); if (inlineValue === undefined) i += 1; break;
@@ -2439,8 +2280,7 @@ Commands:
   rename          Rename a doc, file, or folder resolved by path
   move            Move a doc, file, or folder into another folder path
   delete          Delete a doc, file, or folder resolved by path
-  compile         Trigger a best-effort CLSI-style compile request
-  download-pdf    Download the compiled PDF to a local file
+  compile         Trigger an Overleaf compile request
   extract-csrf    Fetch an authenticated HTML page and extract ol-csrfToken
   probe-write     Summarize the verified write path and prepare a safe probe
   probe-refresh   Summarize the verified refresh path and prepare a safe probe
@@ -2468,7 +2308,6 @@ Options:
   --text-file <path>    Read replacement text for edit from a local file
   --root-file <path>    Root TeX file for compile; defaults to main.tex
   --compiler <name>     Compiler hint for compile; defaults to pdflatex
-  --output-file <path>  Local output path for download-pdf
   --endpoint <path>     Override the endpoint template
   --method <verb>       Override the HTTP verb
   --header k=v          Add an extra header; repeatable
@@ -2501,7 +2340,6 @@ Environment:
   OVERLEAF_ROOT_FILE
   OVERLEAF_MAIN_FILE
   OVERLEAF_COMPILER
-  OVERLEAF_OUTPUT_FILE
   OVERLEAF_ENDPOINT
   OVERLEAF_VALIDATE_ENDPOINT
   OVERLEAF_PROJECTS_ENDPOINT
@@ -2520,23 +2358,10 @@ Settings file auto-discovery:
 `);
 }
 
-function defaultPdfOutputFile(config) {
-  const rawName = config.projectName || config.projectId || 'overleaf-output';
-  const safeName = String(rawName)
-    .trim()
-    .replace(/[^\w.-]+/g, '_')
-    .replace(/^_+|_+$/g, '') || 'overleaf-output';
-  return `${safeName}.pdf`;
-}
-
 export const __test__ = {
   COOKIE_PLACEHOLDER,
-  buildBinaryDownloadRequest,
-  downloadProjectPdf,
-  executeBinaryRequest,
   executeRequest,
   loadConfig,
   parseCompilePayload,
-  resolveCompileOutputUrl,
   sanitizeCookieHeaderValue,
 };
